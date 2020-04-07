@@ -62,7 +62,7 @@ public class MeanAggregator {
 						return "query";
 					}
 					
-				}, URLEncoder.encode(queryParam.substring(0, queryParam.length() - 1).replace("$filter=(", ""), "utf-8"));
+				}, URLEncoder.encode(queryParam.replace("$filter=", ""), "utf-8").replace(" $orderby", "&orderby"));
 			} catch (UnsupportedEncodingException e) {
 				e.printStackTrace();
 			}
