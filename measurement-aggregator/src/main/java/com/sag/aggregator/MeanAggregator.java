@@ -42,8 +42,8 @@ public class MeanAggregator {
 	@Autowired
 	private MeasurementApi measurementApi;
 
-	public String meanAggregateMeasurements(String groupId, String fragmentType,
-			List<String> series, DateTime fromDate, DateTime toDate, long interval) {
+	public String meanAggregateMeasurements(String groupId, String fragmentType, List<String> series, DateTime fromDate,
+			DateTime toDate, long interval) {
 		Map<DateTime, Map<String, List<BigDecimal>>> unaggregatedMeasurements = new HashMap<DateTime, Map<String, List<BigDecimal>>>();
 		Map<DateTime, Map<String, BigDecimal>> measurements = new TreeMap<DateTime, Map<String, BigDecimal>>();
 
@@ -51,7 +51,7 @@ public class MeanAggregator {
 
 		Iterable<GId> mors;
 		ManagedObjectRepresentation group = inventoryApi.get(new GId(groupId));
-		if (group.getProperty("c8y_IsDynamicGroup") != null) {
+		if (group.hasProperty("c8y_IsDynamicGroup")) {
 			String queryParam = group.getProperty("c8y_DeviceQueryString").toString();
 			QueryParam query = null;
 			try {
@@ -61,36 +61,41 @@ public class MeanAggregator {
 					public String getName() {
 						return "query";
 					}
-					
-				}, URLEncoder.encode(queryParam.replace("$filter=", ""), "utf-8").replace(" $orderby", "&orderby"));
+
+				}, URLEncoder.encode(queryParam, "utf8"));
 			} catch (UnsupportedEncodingException e) {
 				e.printStackTrace();
 			}
-			mors = StreamSupport.stream(inventoryApi.getManagedObjects().get(query).allPages().spliterator(), false).map(mor -> {
-				logger.info("Found device {}", mor.getName());
-				return mor.getId();
-			}).collect(Collectors.toList());
+			mors = StreamSupport.stream(inventoryApi.getManagedObjects().get(2000, query).allPages().spliterator(), false)
+					.map(mor -> {
+						logger.info("Found device {}", mor.getName());
+						return mor.getId();
+					}).collect(Collectors.toList());
 		} else {
-			mors = StreamSupport.stream(inventoryApi.getManagedObjectApi(group.getId()).getChildAssets().get().allPages().spliterator(), false).map(morr -> morr.getManagedObject().getId()).collect(Collectors.toList());
+			mors = StreamSupport
+					.stream(inventoryApi.getManagedObjectApi(group.getId()).getChildAssets().get(2000).allPages()
+							.spliterator(), false)
+					.map(morr -> morr.getManagedObject().getId()).collect(Collectors.toList());
 		}
 		mors.forEach(mor -> {
-			MeasurementFilter filter = new MeasurementFilter().byDate(fromDate.toDate(), toDate.toDate())
-					.bySource(mor).byValueFragmentType(fragmentType);
+			MeasurementFilter filter = new MeasurementFilter().byDate(fromDate.toDate(), toDate.toDate()).bySource(mor)
+					.byValueFragmentType(fragmentType);
 			Iterator<MeasurementRepresentation> allMeasurements = measurementApi.getMeasurementsByFilter(filter).get()
 					.allPages().iterator();
 			if (allMeasurements.hasNext()) {
-				DateTime[] currentDate = {fromDate};
+				DateTime[] currentDate = { fromDate };
 				MeasurementRepresentation currentMeasurement = allMeasurements.next();
 				while (currentDate[0].isBefore(toDate)) {
-					final int[] i = {0};
+					final int[] i = { 0 };
 					final Map<String, BigDecimal> values = new HashMap<>();
 					series.forEach(s -> values.put(s, new BigDecimal(0)));
 					while (currentMeasurement.getDateTime().isBefore(currentDate[0].plus(interval))) {
 						try {
 							final JsonNode rootNode = mapper.readTree(currentMeasurement.toJSON());
 							series.forEach(s -> {
-								if (rootNode.get(fragmentType).has(s)) {
-									BigDecimal readValue = rootNode.get(fragmentType).get(s).get("value").decimalValue();
+								if (rootNode.get(fragmentType).has(s) && rootNode.get(fragmentType).get(s).has("value")) {
+									BigDecimal readValue = rootNode.get(fragmentType).get(s).get("value")
+											.decimalValue();
 									values.put(s, values.get(s).add(readValue));
 								}
 							});
@@ -105,7 +110,8 @@ public class MeanAggregator {
 						}
 					}
 					if (i[0] > 0) {
-						series.forEach(s -> {values.put(s, values.get(s).divide(new BigDecimal(i[0]), 2, RoundingMode.HALF_UP));
+						series.forEach(s -> {
+							values.put(s, values.get(s).divide(new BigDecimal(i[0]), 2, RoundingMode.HALF_UP));
 							if (!unaggregatedMeasurements.containsKey(currentDate[0])) {
 								unaggregatedMeasurements.put(currentDate[0], new HashMap<String, List<BigDecimal>>());
 							}
@@ -119,11 +125,11 @@ public class MeanAggregator {
 				}
 			}
 		});
-		
+
 		unaggregatedMeasurements.forEach((date, map) -> {
 			map.forEach((s, list) -> {
-				BigDecimal[] value = {new BigDecimal(0)};
-				int[] counter = {0};
+				BigDecimal[] value = { new BigDecimal(0) };
+				int[] counter = { 0 };
 				list.forEach(m -> {
 					value[0] = value[0].add(m);
 					counter[0]++;
@@ -136,19 +142,19 @@ public class MeanAggregator {
 				}
 			});
 		});
-		
+
 		List<String> measures = new ArrayList<String>();
 		measurements.forEach((date, map) -> {
-			String[] measurement = {"{\"time\":\"" + date.toDateTimeISO() + "\""};
+			String[] measurement = { "{\"time\":\"" + date.toDateTimeISO() + "\"" };
 			map.forEach((s, m) -> {
-				measurement[0] += " ,\"" + s +"\":" + m.toString();
+				measurement[0] += " ,\"" + s + "\":" + m.toString();
 			});
-			measurement[0] +=  "}";
+			measurement[0] += "}";
 			measures.add(measurement[0]);
 		});
 
 		String result = "[" + measures.stream().reduce(null, (sub, m) -> {
-			if (sub != null ) {
+			if (sub != null) {
 				return String.join(",", sub, m);
 			} else {
 				return m;
